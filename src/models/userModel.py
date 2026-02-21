@@ -1,6 +1,6 @@
 import uuid
 from sqlmodel import SQLModel, Field
-from pydantic import EmailStr
+from pydantic import EmailStr, BaseModel
 
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True)
@@ -25,3 +25,7 @@ class Token(SQLModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+class LoginSchema(BaseModel):
+    email: EmailStr
+    password: str

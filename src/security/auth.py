@@ -11,7 +11,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"/blackrock/challenge/{settings.VERSION}/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"/blackrock/challenge/{settings.VERSION}/swagger_login")
 
 def get_password_hash(password: str) -> str:
     # Hash the password using bcrypt directly

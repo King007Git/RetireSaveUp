@@ -4,7 +4,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.connection.session import get_db
-from src.models.userModel import User, UserCreate, UserResponse, Token
+from src.models.userModel import User, UserCreate, UserResponse, Token, LoginSchema
 from src.security.auth import (
     get_password_hash, verify_password, create_access_token, 
     create_refresh_token
@@ -24,7 +24,6 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
     
     hashed_pwd = get_password_hash(user.password)
-    # SQLModel unpacks the fields beautifully
     new_user = User(email=user.email, hashed_password=hashed_pwd)
     
     db.add(new_user)
@@ -32,18 +31,50 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.refresh(new_user)
     return new_user
 
+@router.post("/swagger_login", response_model=Token)
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.exec(
+        select(User).where(User.email == form_data.username)
+    )
+    user = result.first()
+
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect email or password"
+        )
+
+    access_token = create_access_token(data={"sub": user.email})
+    refresh_token = create_refresh_token(data={"sub": user.email})
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
 @router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    result = await db.exec(select(User).where(User.email == form_data.username))
+async def login(
+    login_data: LoginSchema,
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.exec(select(User).where(User.email == login_data.email))
     user = result.first()
     
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     
     access_token = create_access_token(data={"sub": user.email})
     refresh_token = create_refresh_token(data={"sub": user.email})
     
-    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
 
 @router.get("/protected", response_model=dict)
 async def protected_route(current_user: User = Depends(get_current_user)):
