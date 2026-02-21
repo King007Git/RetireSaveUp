@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: blackrock_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    # Docker port mapping: -p 5477:5477 (host:container)
+    ports:
+      - "5477:5477"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/blackrock_db
+      - VERSION=v1
+      - SECRET_KEY=this-is-a-super-secret-key-keep-it-safe
+    depends_on:
+      db:
+        condition: service_healthy
