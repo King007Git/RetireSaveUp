@@ -9,6 +9,7 @@ from alembic import context
 
 from sqlmodel import SQLModel
 from src.models.userModel import User
+from src.models.history import CalculationHistory
 from config import settings
 
 # this is the Alembic Config object, which provides

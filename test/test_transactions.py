@@ -149,3 +149,72 @@ def test_filter_transactions_invalid_handling():
     invalid_messages = [item["message"] for item in data["invalid"]]
     assert "Duplicate transaction" in invalid_messages
     assert "Negative amounts are not allowed" in invalid_messages
+
+def test_returns_nps_calculation_logic():
+    """Tests the NPS returns calculation, including tax benefits, compound interest, and inflation."""
+    # This payload is taken exactly from the challenge document example (Pages 12-13)
+    payload = {
+        "age": 29,
+        "wage": 50000,
+        "inflation": 5.5,
+        "q": [{"fixed": 0, "start": "2023-07-01 00:00:00", "end": "2023-07-31 23:59:59"}],
+        "p": [{"extra": 25, "start": "2023-10-01 08:00:00", "end": "2023-12-31 19:59:59"}],
+        "k": [
+            {"start": "2023-01-01 00:00:00", "end": "2023-12-31 23:59:59"},
+            {"start": "2023-03-01 00:00:00", "end": "2023-11-30 23:59:59"} # Adjusted 11-31 to 11-30 as Nov has 30 days
+        ],
+        "transactions": [
+            {"date": "2023-02-28 15:49:20", "amount": 375},
+            {"date": "2023-07-01 21:59:00", "amount": 620},
+            {"date": "2023-10-12 20:15:30", "amount": 250},
+            {"date": "2023-12-17 08:09:45", "amount": 480},
+            {"date": "2023-12-17 08:09:45", "amount": 10} # This is a duplicate date! It should be ignored.
+        ]
+    }
+    
+    response = client.post("/blackrock/challenge/v1/returns:nps", json=payload)
+    
+    assert response.status_code == 200
+    data = response.json()
+    
+    # Check global totals [cite: 424-425]
+    # The duplicate transaction (10) should be ignored, meaning total is 1725, not 1735.
+    assert data["totalTransactionAmount"] == 1725.0
+    assert data["totalCeiling"] == 1900.0
+    
+    # Check savings and returns for the full year K-period [cite: 429-433]
+    full_year = next(k for k in data["savingsByDates"] if k["start"] == "2023-01-01 00:00:00")
+    assert full_year["amount"] == 145.0
+    assert full_year["profit"] == 86.88
+    assert full_year["taxBenefit"] == 0.0 # Wage is 50k/mo = 6L/yr, which is in the 0% tax slab
+    
+    # Check savings and returns for the partial year K-period [cite: 435-439]
+    partial_year = next(k for k in data["savingsByDates"] if k["start"] == "2023-03-01 00:00:00")
+    assert partial_year["amount"] == 75.0
+    assert partial_year["profit"] == 44.94
+
+def test_returns_index_calculation_logic():
+    """Tests that the Index fund calculates aggressive returns without applying tax rebates."""
+    payload = {
+        "age": 29,
+        "wage": 50000,
+        "inflation": 5.5,
+        "q": [], "p": [],
+        "k": [{"start": "2023-01-01 00:00:00", "end": "2023-12-31 23:59:59"}],
+        "transactions": [
+            {"date": "2023-10-12 20:15:30", "amount": 250.0} # Remanent = 50.0
+        ]
+    }
+    
+    response = client.post("/blackrock/challenge/v1/returns:index", json=payload)
+    
+    assert response.status_code == 200
+    data = response.json()
+    
+    savings = data["savingsByDates"][0]
+    
+    # 1. Tax Benefit MUST be 0.0 for Index Funds regardless of wage [cite: 447]
+    assert savings["taxBenefit"] == 0.0
+    
+    # 2. Assert that the profit calculated is strictly positive (compound interest applied)
+    assert savings["profit"] > 0

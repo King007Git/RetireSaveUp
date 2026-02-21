@@ -1,24 +1,31 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 import math
 from typing import List
 from typing import Set
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlmodel import select
 
 from config import settings
+from src.connection.session import get_db
+from src.models.userModel import User
+from src.models.history import CalculationHistory, CalculationHistoryResponse
 from src.schema.transactions import (
     TransactionParsed,
     ExpenseInput, 
     InvalidTransaction, 
     ValidatorInput, 
     ValidatorResponse,
-    QPeriod,
-    KPeriod,
-    PPeriod,
     FilteredTransaction,
     FilterResponse,
     FilterInput,
-    InvalidFilteredTransaction,
-    
+    InvalidFilteredTransaction
 )
+from src.schema.returnCalcSchema import (
+    ReturnsResponse,
+    ReturnsInput
+)
+from src.services.returnCalcServices import process_returns
+from src.utils import get_current_user
 
 router = APIRouter(
     prefix=f"/blackrock/challenge/{settings.VERSION}",
@@ -188,3 +195,79 @@ async def filter_transactions(payload: FilterInput):
         valid_txs.append(final_tx)
 
     return FilterResponse(valid=valid_txs, invalid=invalid_txs)
+
+@router.post(
+    "/returns:nps", 
+    response_model=ReturnsResponse
+)
+async def calculate_nps_returns(
+    payload: ReturnsInput, 
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Perform the calculation
+    result = process_returns(payload, investment_type="nps")
+    
+    # 2. Create the history record
+    history_record = CalculationHistory(
+        user_id=current_user.id,
+        investment_type="nps",
+        # Convert Pydantic models to dictionaries for JSONB storage
+        payload=payload.model_dump(), 
+        result=result.model_dump()
+    )
+    
+    # 3. Save to database
+    db.add(history_record)
+    await db.commit()
+    
+    return result
+
+@router.post(
+    "/returns:index", 
+    response_model=ReturnsResponse
+)
+async def calculate_index_returns(
+    payload: ReturnsInput, 
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Perform the calculation
+    result = process_returns(payload, investment_type="index")
+    
+    # 2. Create the history record
+    history_record = CalculationHistory(
+        user_id=current_user.id,
+        investment_type="index",
+        # Convert Pydantic models to dictionaries for JSONB storage
+        payload=payload.model_dump(), 
+        result=result.model_dump()
+    )
+    
+    # 3. Save to database
+    db.add(history_record)
+    await db.commit()
+    
+    return result
+
+@router.get(
+    "/history", 
+    response_model=List[CalculationHistoryResponse]
+)
+async def get_user_history(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Build the query to filter by the authenticated user's ID
+    statement = (
+        select(CalculationHistory)
+        .where(CalculationHistory.user_id == current_user.id)
+        .order_by(CalculationHistory.created_at.desc())
+    )
+    
+    # 2. Execute the query
+    result = await db.exec(statement)
+    history_records = result.all()
+    
+    # 3. Return the list of records
+    return history_records

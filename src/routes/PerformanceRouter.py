@@ -12,7 +12,7 @@ router = APIRouter(
     tags=['Performance Report']
 )
 
-@router.get(f"/blackrock/challenge/{settings.VERSION}/performance")
+@router.get(f"/performance")
 def get_performance():
     """
     Reports system execution metrics including uptime, memory usage, 
